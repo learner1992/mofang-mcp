@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.mofang_cache/
+.mcp.json
+.mofang-mcp-stdio.log
+.claude/
+
+# docs: keep only client-facing quickstart
+/docs/*
+!/docs/OPENCLAW_CLAUDECODE_REGISTRATION.md

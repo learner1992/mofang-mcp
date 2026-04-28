@@ -51,7 +51,7 @@ TOOLS: list[dict[str, Any]] = [
     ),
     tool(
         "resolve_entity",
-        "Resolve a company name or alias into a standard enterprise entity.",
+        "Resolve enterprise entities from multi-domain keywords and return standardized candidates. Supports business-info fields (company name, legal representative, unified credit code, registration number, address, members), recruitment, marketing, intellectual property, and bidding related terms.",
         {
             "type": "object",
             "properties": {

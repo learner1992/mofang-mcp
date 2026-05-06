@@ -4,7 +4,7 @@
 
 当前实现遵循 `docs/ENTERPRISE_QUERY_MCP_SPEC_V2.md` 的 A0 范围：
 
-- MCP stdio server
+- MCP Tool Layer
 - `tools/list`
 - `tools/call`
 - A0 Tools:
@@ -14,10 +14,40 @@
   - `company_profile`
   - `company_risk`
   - `company_bidding`
-- Gateway Core 内置于 MCP Server 进程内
-- Gateway 统一负责当前进程 `APP_ACCESS_KEY/APP_SECRET_KEY -> token`、token 缓存和 OpenAPI 调用
+- Gateway Core 负责 `AK/SK -> token`、token 缓存和 OpenAPI 调用
 
-## 启动
+## 推荐接入方式（远程托管）
+
+生产推荐使用远程托管 MCP：客户端只需配置 `url + headers(AK/SK)`，无需 clone 代码和本地启动进程。
+
+服务端 remote endpoint：
+
+- `POST /mcp/company/stream`
+- `Content-Type: application/json`
+- 请求级 Header：`X-App-Access-Key`、`X-App-Secret-Key`
+
+远程启动命令：
+
+```bash
+python3 main.py mcp-http
+```
+
+可选环境变量：
+
+```bash
+export MOFANG_MCP_HTTP_HOST="0.0.0.0"
+export MOFANG_MCP_HTTP_PORT="8000"
+export MOFANG_MCP_HTTP_PATH="/mcp/company/stream"
+```
+
+参考：
+
+- [docs/REMOTE_MCP_HOSTED_SPEC_V1.md](docs/REMOTE_MCP_HOSTED_SPEC_V1.md)
+- [docs/REMOTE_MCP_REGISTRATION_ONE_PAGER.md](docs/REMOTE_MCP_REGISTRATION_ONE_PAGER.md)
+
+## 本地开发调试模式（stdio）
+
+仅用于本地联调与回归测试（remote 实现回归）。
 
 ```bash
 cd /Users/xutengqiang/Desktop/claude/mofang-skill-v2
@@ -36,4 +66,11 @@ python3 main.py call route_query '{"query":"查一下华为最近一年招投标
 
 ## 注册到 Claude Code / OpenClaw
 
-参考 [docs/OPENCLAW_CLAUDECODE_REGISTRATION.md](docs/OPENCLAW_CLAUDECODE_REGISTRATION.md)。
+远程托管接入参考：
+
+- [docs/REMOTE_MCP_REGISTRATION_ONE_PAGER.md](docs/REMOTE_MCP_REGISTRATION_ONE_PAGER.md)
+
+本地 stdio 接入（仅开发调试）参考：
+
+- [docs/OPENCLAW_CLAUDECODE_REGISTRATION.md](docs/OPENCLAW_CLAUDECODE_REGISTRATION.md)
+

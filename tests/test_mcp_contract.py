@@ -161,7 +161,7 @@ def test_error_names_match_contract() -> None:
     assert gateway._upstream_error("x", True)["message"] == "UPSTREAM_BAD_GATEWAY"
 
 
-def test_tools_call_validation_returns_tool_error() -> None:
+def test_tools_call_validation_returns_jsonrpc_error() -> None:
     server = McpServer()
     response = server.handle(
         {
@@ -174,15 +174,11 @@ def test_tools_call_validation_returns_tool_error() -> None:
             },
         }
     )
-    assert "error" not in response
-    assert response["result"]["isError"] is True
-    payload = _tool_payload(response)
-    assert payload["code"] == 10001
-    assert payload["message"] == "INVALID_ARGUMENT"
-    assert "arguments.query is required" in payload["error"]["detail"]
+    assert response["error"]["code"] == -32602
+    assert response["error"]["message"] == "arguments.query is required"
 
 
-def test_snapshot_invalid_options_return_business_error() -> None:
+def test_snapshot_invalid_options_return_jsonrpc_error() -> None:
     server = McpServer()
     response = server.handle(
         {
@@ -199,12 +195,8 @@ def test_snapshot_invalid_options_return_business_error() -> None:
             },
         }
     )
-    assert "error" not in response
-    assert response["result"]["isError"] is True
-    payload = _tool_payload(response)
-    assert payload["code"] == 10001
-    assert payload["message"] == "INVALID_ARGUMENT"
-    assert "options.limit must be integer" in payload["error"]["detail"]
+    assert response["error"]["code"] == -32602
+    assert response["error"]["message"] == "arguments.options.limit must be integer"
 
 
 def test_request_id_is_propagated_from_mcp_params() -> None:

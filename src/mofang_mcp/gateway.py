@@ -9,7 +9,7 @@ from typing import Any
 
 from .cache import TTLMemoryCache, TokenCache
 from .config import Settings
-from .credentials import Credential, CredentialResolver
+from .credentials import Credential, CredentialResolver, RequestContext
 from .http_client import http_json, quote
 from .logging_utils import log_event
 from .manifest import Manifest
@@ -47,10 +47,10 @@ class GatewayCore:
         self.entity_cache = TTLMemoryCache()
         self.snapshot_cache = TTLMemoryCache()
 
-    def route_query(self, query: str, request_id: str | None = None) -> dict[str, Any]:
+    def route_query(self, query: str, request_id: str | None = None, ctx: RequestContext | None = None) -> dict[str, Any]:
         started = time.perf_counter()
         try:
-            self._resolve_credential()
+            self._resolve_credential(ctx)
         except AuthError as exc:
             return self._auth_error(str(exc), started, request_id, tool_id="route_query")
         data = route_query(query)
@@ -62,10 +62,11 @@ class GatewayCore:
         region_hint: str | None = None,
         top_k: int = 5,
         request_id: str | None = None,
+        ctx: RequestContext | None = None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         try:
-            credential = self._resolve_credential()
+            credential = self._resolve_credential(ctx)
         except AuthError as exc:
             return self._auth_error(str(exc), started, request_id, tool_id="resolve_entity")
         cache_key = f"{credential.account_id}:{credential.app_key_fingerprint}:{query}:{region_hint or ''}:{top_k}"
@@ -120,10 +121,11 @@ class GatewayCore:
         modules: list[str],
         options: dict[str, Any] | None = None,
         request_id: str | None = None,
+        ctx: RequestContext | None = None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         try:
-            credential = self._resolve_credential()
+            credential = self._resolve_credential(ctx)
         except AuthError as exc:
             return self._auth_error(str(exc), started, request_id, tool_id="company_snapshot")
         options = options or {}
@@ -581,9 +583,9 @@ class GatewayCore:
             force_refresh=force_refresh,
         )
 
-    def _resolve_credential(self) -> Credential:
+    def _resolve_credential(self, ctx: RequestContext | None = None) -> Credential:
         try:
-            return self.credentials.resolve()
+            return self.credentials.resolve(ctx)
         except ValueError as exc:
             raise AuthError(str(exc)) from exc
 

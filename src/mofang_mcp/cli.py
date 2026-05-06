@@ -5,6 +5,7 @@ import json
 
 from .config import Settings
 from .gateway import GatewayCore
+from .mcp_http import serve_http
 from .mcp_stdio import serve_stdio
 from .tool_catalog import TOOLS
 
@@ -14,6 +15,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("mcp", help="run MCP stdio server")
+    sub.add_parser("mcp-http", help="run MCP HTTP JSON-RPC server")
     sub.add_parser("list-tools", help="print tool catalog")
 
     call_cmd = sub.add_parser("call", help="call a tool locally")
@@ -23,6 +25,10 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "mcp":
         serve_stdio()
+        return
+    if args.command == "mcp-http":
+        settings = Settings.from_env()
+        serve_http(settings.http_host, settings.http_port, settings.http_path)
         return
     if args.command == "list-tools":
         print(json.dumps({"tools": TOOLS}, ensure_ascii=False, indent=2))

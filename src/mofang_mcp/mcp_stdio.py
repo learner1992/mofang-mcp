@@ -8,6 +8,7 @@ import uuid
 from typing import Any
 
 from .config import Settings
+from .credentials import RequestContext
 from .gateway import GatewayCore
 from .logging_utils import log_event
 from .tool_catalog import TOOLS, TOOL_BY_NAME
@@ -35,7 +36,7 @@ class McpServer:
     def __init__(self, gateway: GatewayCore | None = None) -> None:
         self.gateway = gateway or GatewayCore(Settings.from_env())
 
-    def handle(self, message: dict[str, Any]) -> dict[str, Any] | None:
+    def handle(self, message: dict[str, Any], ctx: RequestContext | None = None) -> dict[str, Any] | None:
         method = message.get("method")
         message_id = message.get("id")
         try:
@@ -50,7 +51,7 @@ class McpServer:
                 return self._response(message_id, {"tools": TOOLS})
             if method == "tools/call":
                 params = message.get("params") or {}
-                return self._response(message_id, self._call_tool(params, message_id))
+                return self._call_tool(message_id, params, ctx)
             return self._error(message_id, -32601, f"method not found: {method}")
         except Exception as exc:
             return self._error(message_id, -32000, str(exc))
@@ -71,26 +72,21 @@ class McpServer:
             },
         }
 
-    def _call_tool(self, params: Any, message_id: Any = None) -> dict[str, Any]:
-        started = time.perf_counter()
-        request_id = self._make_request_id(params, message_id)
+    def _call_tool(self, message_id: Any, params: Any, ctx: RequestContext | None = None) -> dict[str, Any]:
+        request_id = self._make_request_id(params, message_id, ctx)
         if not isinstance(params, dict):
-            result = self._tool_error(10001, "INVALID_ARGUMENT", "params must be object", False, request_id, started)
-            return self._tool_result(result)
+            return self._error(message_id, -32602, "params must be object")
         name = str(params.get("name") or "")
         arguments = params.get("arguments", {})
         if name not in TOOL_BY_NAME:
-            result = self._tool_error(10001, "INVALID_ARGUMENT", f"unknown tool: {name}", False, request_id, started, name)
-            return self._tool_result(result)
+            return self._error(message_id, -32602, f"unknown tool: {name}")
         if not isinstance(arguments, dict):
-            result = self._tool_error(10001, "INVALID_ARGUMENT", "arguments must be object", False, request_id, started, name)
-            return self._tool_result(result)
+            return self._error(message_id, -32602, "arguments must be object")
         validation_error = self._validate_schema(TOOL_BY_NAME[name]["inputSchema"], arguments)
         if validation_error:
-            result = self._tool_error(10001, "INVALID_ARGUMENT", validation_error, False, request_id, started, name)
-            return self._tool_result(result)
-        result = self._dispatch_tool(name, arguments, request_id)
-        return self._tool_result(result)
+            return self._error(message_id, -32602, validation_error)
+        result = self._dispatch_tool(name, arguments, request_id, ctx)
+        return self._response(message_id, self._tool_result(result))
 
     def _tool_result(self, result: dict[str, Any]) -> dict[str, Any]:
         is_error = bool(result.get("code") not in (None, 0))
@@ -115,15 +111,16 @@ class McpServer:
             "isError": is_error,
         }
 
-    def _dispatch_tool(self, name: str, arguments: dict[str, Any], request_id: str) -> dict[str, Any]:
+    def _dispatch_tool(self, name: str, arguments: dict[str, Any], request_id: str, ctx: RequestContext | None = None) -> dict[str, Any]:
         if name == "route_query":
-            return self.gateway.route_query(str(arguments["query"]), request_id=request_id)
+            return self.gateway.route_query(str(arguments["query"]), request_id=request_id, ctx=ctx)
         if name == "resolve_entity":
             return self.gateway.resolve_entity(
                 str(arguments["query"]),
                 region_hint=arguments.get("region_hint"),
                 top_k=int(arguments.get("top_k", 5)),
                 request_id=request_id,
+                ctx=ctx,
             )
         if name == "company_snapshot":
             return self.gateway.company_snapshot(
@@ -131,6 +128,7 @@ class McpServer:
                 list(arguments.get("modules") or []),
                 options=arguments.get("options") or {},
                 request_id=request_id,
+                ctx=ctx,
             )
         if name == "company_profile":
             result = self.gateway.company_snapshot(
@@ -138,6 +136,7 @@ class McpServer:
                 ["profile"],
                 options=arguments.get("options") or {},
                 request_id=request_id,
+                ctx=ctx,
             )
             return self._single_module_response(result, "profile", PROFILE_SOURCE_MODULES)
         if name == "company_risk":
@@ -146,6 +145,7 @@ class McpServer:
                 ["risk"],
                 options=arguments.get("options") or {},
                 request_id=request_id,
+                ctx=ctx,
             )
             return self._single_module_response(result, "risk")
         if name == "company_bidding":
@@ -154,6 +154,7 @@ class McpServer:
                 ["bidding"],
                 options=arguments.get("options") or {},
                 request_id=request_id,
+                ctx=ctx,
             )
             return self._single_module_response(result, "bidding")
         raise ValueError(f"tool not implemented: {name}")
@@ -186,7 +187,11 @@ class McpServer:
         telemetry = {**(meta.get("telemetry") or {}), "partial": partial}
         return {**result, "data": transformed_data, "meta": {**meta, "telemetry": telemetry}}
 
-    def _make_request_id(self, params: Any, message_id: Any) -> str:
+    def _make_request_id(self, params: Any, message_id: Any, ctx: RequestContext | None = None) -> str:
+        headers = {str(k).lower(): str(v) for k, v in (ctx.headers or {}).items()} if ctx else {}
+        header_request_id = headers.get("x-request-id", "").strip()
+        if header_request_id:
+            return header_request_id
         meta = params.get("_meta") if isinstance(params, dict) else None
         if isinstance(meta, dict):
             request_id = meta.get("request_id") or meta.get("requestId")
@@ -195,44 +200,6 @@ class McpServer:
         if message_id is not None:
             return f"req_rpc_{message_id}"
         return f"req_{uuid.uuid4().hex}"
-
-    def _tool_error(
-        self,
-        code: int,
-        message: str,
-        detail: str,
-        retryable: bool,
-        request_id: str,
-        started: float,
-        tool_id: str | None = None,
-    ) -> dict[str, Any]:
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        return {
-            "code": code,
-            "message": message,
-            "request_id": request_id,
-            "error": {
-                "type": "business",
-                "detail": detail,
-                "retryable": retryable,
-            },
-            "meta": {
-                "latency_ms": latency_ms,
-                "telemetry": {
-                    "partial": False,
-                    "api_call_count": 0,
-                    "api_parallel_groups": 0,
-                    "cache_hit_token": False,
-                    "cache_hit_entity": False,
-                    "cache_hit_route": False,
-                    "cache_hit_snapshot": False,
-                    "coverage_ratio": None,
-                    "tool_id": tool_id,
-                    "error_code": code,
-                    "total_ms": latency_ms,
-                },
-            },
-        }
 
     def _validate_schema(self, schema: dict[str, Any], value: Any, path: str = "arguments") -> str | None:
         expected_type = schema.get("type")

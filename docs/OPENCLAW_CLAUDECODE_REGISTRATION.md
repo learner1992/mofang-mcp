@@ -1,6 +1,10 @@
-# 一页式接入：OpenClaw / Claude Code（本地运行）
+# 一页式接入：OpenClaw / Claude Code（本地运行，仅开发调试）
 
-> 目标：让最终用户在本机启动 MCP Server，并在 OpenClaw / Claude Code 中直接调用企业查询工具。
+> 当前生产推荐为远程托管模式：
+> - [REMOTE_MCP_REGISTRATION_ONE_PAGER.md](REMOTE_MCP_REGISTRATION_ONE_PAGER.md)
+> - [REMOTE_MCP_HOSTED_SPEC_V1.md](REMOTE_MCP_HOSTED_SPEC_V1.md)
+>
+> 本文档仅保留给开发联调场景。
 
 ## 0. 前提说明
 
@@ -51,7 +55,7 @@ python3 main.py call route_query '{"query":"查一下华为最近一年招投标
 
 ---
 
-## 4. 注册到 Claude Code / OpenClaw
+## 4. 注册到 Claude Code / OpenClaw（本地模式）
 
 将以下配置加入 MCP 配置文件（按你的客户端位置填写）：
 

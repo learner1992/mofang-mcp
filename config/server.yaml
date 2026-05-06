@@ -1,0 +1,7 @@
+base_url: https://openapi.qike366.com
+manifest_path: data/api_manifest.json
+cache_dir: /tmp/mofang-skill-v2-cache
+timeout_seconds: 30
+http_host: 0.0.0.0
+http_port: 8000
+http_path: /mcp/company/stream

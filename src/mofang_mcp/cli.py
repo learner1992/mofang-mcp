@@ -15,7 +15,8 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("mcp", help="run MCP stdio server")
-    sub.add_parser("mcp-http", help="run MCP HTTP JSON-RPC server")
+    http_cmd = sub.add_parser("mcp-http", help="run MCP HTTP JSON-RPC server")
+    http_cmd.add_argument("--config", help="path to JSON/YAML config file", default=None)
     sub.add_parser("list-tools", help="print tool catalog")
 
     call_cmd = sub.add_parser("call", help="call a tool locally")
@@ -27,7 +28,7 @@ def main() -> None:
         serve_stdio()
         return
     if args.command == "mcp-http":
-        settings = Settings.from_env()
+        settings = Settings.from_file_or_env(args.config)
         serve_http(settings.http_host, settings.http_port, settings.http_path)
         return
     if args.command == "list-tools":

@@ -29,10 +29,22 @@
 远程启动命令：
 
 ```bash
-python3 main.py mcp-http
+python3 main.py mcp-http --config ./config/server.yaml
 ```
 
-可选环境变量：
+配置文件示例（推荐 K8s 挂载）：
+
+```yaml
+base_url: https://openapi.qike366.com
+manifest_path: data/api_manifest.json
+cache_dir: /tmp/mofang-skill-v2-cache
+timeout_seconds: 30
+http_host: 0.0.0.0
+http_port: 8000
+http_path: /mcp/company/stream
+```
+
+兼容环境变量（无 `--config` 时生效）：
 
 ```bash
 export MOFANG_MCP_HTTP_HOST="0.0.0.0"

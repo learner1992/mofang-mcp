@@ -22,9 +22,12 @@
 
 服务端 remote endpoint：
 
+- `GET /mcp/company/stream` 建立 `text/event-stream` SSE 连接
 - `POST /mcp/company/stream`
+- `DELETE /mcp/company/stream` 显式结束会话（可选）
 - `Content-Type: application/json`
 - 请求级 Header：`X-App-Access-Key`、`X-App-Secret-Key`
+- 初始化成功后响应头返回：`Mcp-Session-Id`
 
 远程启动命令：
 
@@ -85,4 +88,3 @@ python3 main.py call route_query '{"query":"查一下华为最近一年招投标
 本地 stdio 接入（仅开发调试）参考：
 
 - [docs/OPENCLAW_CLAUDECODE_REGISTRATION.md](docs/OPENCLAW_CLAUDECODE_REGISTRATION.md)
-

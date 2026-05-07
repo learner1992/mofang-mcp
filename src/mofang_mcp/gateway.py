@@ -340,11 +340,13 @@ class GatewayCore:
         )
 
     def _build_body(self, api_id: int, entity: dict[str, Any], options: dict[str, Any]) -> dict[str, Any] | None:
-        if api_id in {911, 912, 922, 1013}:
+        if api_id in {911, 912, 922}:
             return None
         keyword = self._entity_keyword(entity)
         body: dict[str, Any] = {"keyword": keyword}
-        if api_id in {204, 205, 206, 503, 505, 510, 512, 523, 525, 901, 907}:
+        if api_id == 1013:
+            return body
+        if api_id in {204, 205, 206, 503, 505, 510, 512, 523, 525, 901, 907, 1013}:
             body["current"] = int(options.get("current", 1))
             body["size"] = int(options.get("limit", 5))
         return body
@@ -377,6 +379,7 @@ class GatewayCore:
             token_telemetry,
             api_id,
             api_name,
+            body,
         )
         if self._is_auth_failure(status, payload):
             token, retry_telemetry = self._get_token(credential, force_refresh=True)
@@ -397,6 +400,7 @@ class GatewayCore:
                 retry_telemetry,
                 api_id,
                 api_name,
+                body,
             )
             token_telemetry = self._merge_token_telemetry(
                 [
@@ -422,7 +426,9 @@ class GatewayCore:
         token_telemetry: dict[str, Any],
         api_id: int | None = None,
         api_name: str | None = None,
+        body: dict[str, Any] | None = None,
     ) -> None:
+        body_keys = sorted(body.keys()) if isinstance(body, dict) else None
         log_event(
             "gateway.upstream_call",
             request_id=request_id,
@@ -435,6 +441,7 @@ class GatewayCore:
             retry_after_401=retry_after_401,
             cache_hit_token=token_telemetry.get("cache_hit_token"),
             token_refresh_result=token_telemetry.get("token_refresh_result"),
+            body_keys=body_keys,
         )
 
     def _validate_entity(

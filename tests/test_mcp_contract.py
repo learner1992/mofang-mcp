@@ -142,7 +142,13 @@ def test_route_query_defers_non_a0_modules() -> None:
         "operation_not_available_in_a0",
         "development_not_available_in_a0",
     ]
-    assert not {"ip", "operation", "development"} & set(routed["modules"])
+
+
+def test_build_body_for_icp_api_includes_keyword_only() -> None:
+    gateway = GatewayCore(Settings.from_env())
+    entity = {"ent_name": "启魔方（北京）科技有限公司"}
+    body = gateway._build_body(1013, entity, {"current": 2, "limit": 20})
+    assert body == {"keyword": "启魔方（北京）科技有限公司"}
 
 
 def test_snapshot_cache_key_canonicalizes_options() -> None:

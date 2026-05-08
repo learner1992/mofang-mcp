@@ -138,6 +138,18 @@ TOOLS: list[dict[str, Any]] = [
             "additionalProperties": False,
         },
     ),
+    tool(
+        "bidding_detail",
+        "Fetch bidding and procurement announcement detail by mid.",
+        {
+            "type": "object",
+            "properties": {
+                "mid": {"type": "string"},
+            },
+            "required": ["mid"],
+            "additionalProperties": False,
+        },
+    ),
 ]
 
 

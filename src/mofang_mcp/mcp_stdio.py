@@ -165,6 +165,12 @@ class McpServer:
                 request_id=request_id,
                 ctx=ctx,
             )
+        if name == "bidding_detail":
+            return self.gateway.bidding_detail(
+                str(arguments["mid"]),
+                request_id=request_id,
+                ctx=ctx,
+            )
         raise ValueError(f"tool not implemented: {name}")
 
     def _single_module_response(

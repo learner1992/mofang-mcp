@@ -61,6 +61,7 @@ def test_tools_list_contains_a0_tools() -> None:
         "company_risk",
         "company_bidding",
         "bidding_search",
+        "bidding_detail",
     } <= names
     for item in response["result"]["tools"]:
         assert item["tool_id"] == item["name"]
@@ -182,7 +183,14 @@ def test_bidding_search_returns_standardized_list() -> None:
                 "size": "20",
                 "total": "1",
                 "pages": "1",
-                "records": [{"title": "测试标讯", "region": "北京"}],
+                "records": [
+                    {
+                        "mid": "424509104",
+                        "title": "测试标讯",
+                        "region": "北京",
+                        "content": "<div><p>第一段</p><p>第二段</p></div>",
+                    }
+                ],
             },
             {"cache_hit_token": True},
         )
@@ -193,8 +201,14 @@ def test_bidding_search_returns_standardized_list() -> None:
     assert response["request_id"] == "req_bid_search"
     assert response["data"]["query"] == "小米"
     assert response["data"]["search_type_label"] == "exact"
-    assert response["data"]["bidding_search"]["records"][0]["title"] == "测试标讯"
+    record = response["data"]["bidding_search"]["records"][0]
+    assert record["title"] == "测试标讯"
+    assert record["mid"] == "424509104"
+    assert record["content_preview"] == "第一段\n\n第二段"
+    assert record["has_content"] is True
+    assert "content" not in record
     assert response["data"]["bidding_search"]["pagination"]["total"] == "1"
+    assert "bidding_detail" in response["data"]["bidding_search"]["detail_hint"]
 
 
 def test_bidding_search_accepts_success_payload_without_code() -> None:
@@ -212,7 +226,7 @@ def test_bidding_search_accepts_success_payload_without_code() -> None:
         return (
             200,
             {
-                "records": [{"title": "电梯采购项目"}],
+                "records": [{"title": "电梯采购项目", "content": "<div>正文摘要</div>"}],
                 "size": "10",
                 "total": "500001",
                 "searchCount": True,
@@ -224,6 +238,7 @@ def test_bidding_search_accepts_success_payload_without_code() -> None:
     response = gateway.bidding_search("电梯", request_id="req_bid_search_no_code")
     assert response["code"] == 0
     assert response["data"]["bidding_search"]["records"][0]["title"] == "电梯采购项目"
+    assert response["data"]["bidding_search"]["records"][0]["content_preview"] == "正文摘要"
     assert response["data"]["bidding_search"]["pagination"]["total"] == "500001"
 
 
@@ -233,6 +248,92 @@ def test_bidding_search_rejects_invalid_search_type() -> None:
     assert response["code"] == 10001
     assert response["message"] == "INVALID_ARGUMENT"
     assert response["request_id"] == "req_bad_search_type"
+
+
+def test_bidding_detail_returns_standardized_record() -> None:
+    gateway = GatewayCore(Settings.from_env())
+
+    def fake_request_with_token_retry(
+        credential,
+        method,
+        path,
+        body,
+        request_id=None,
+        api_id=None,
+        api_name=None,
+    ):
+        assert method == "POST"
+        assert path == "/open/data/bidding/detail"
+        assert body == {"mid": "424509104"}
+        return (
+            200,
+            {
+                "title": "电梯公开招标采购中标候选人公示",
+                "projectNum": "JW-YM-2026-56",
+                "mid": "424509104",
+                "content": "<div><p>正文</p><ul><li>条目一</li><li>条目二</li></ul></div>",
+            },
+            {"cache_hit_token": True},
+        )
+
+    gateway._request_with_token_retry = fake_request_with_token_retry
+    response = gateway.bidding_detail("424509104", request_id="req_bid_detail")
+    assert response["code"] == 0
+    assert response["request_id"] == "req_bid_detail"
+    assert response["data"]["mid"] == "424509104"
+    record = response["data"]["bidding_detail"]["record"]
+    assert record["title"] == "电梯公开招标采购中标候选人公示"
+    assert record["content"] == "正文\n\n- 条目一\n- 条目二"
+    assert record["content_format"] == "text"
+
+
+def test_bidding_detail_accepts_nested_data_payload() -> None:
+    gateway = GatewayCore(Settings.from_env())
+
+    def fake_request_with_token_retry(
+        credential,
+        method,
+        path,
+        body,
+        request_id=None,
+        api_id=None,
+        api_name=None,
+    ):
+        return (
+            200,
+            {
+                "code": "200",
+                "data": {
+                    "title": "招标详情",
+                    "mid": "424508357",
+                    "content": "<div><table><tr><td>项目</td><td>金额</td></tr><tr><td>A包</td><td>10万</td></tr></table></div>",
+                },
+            },
+            {"cache_hit_token": True},
+        )
+
+    gateway._request_with_token_retry = fake_request_with_token_retry
+    response = gateway.bidding_detail("424508357", request_id="req_bid_detail_nested")
+    assert response["code"] == 0
+    assert response["data"]["bidding_detail"]["record"]["mid"] == "424508357"
+    assert response["data"]["bidding_detail"]["record"]["content"] == "项目 | 金额\nA包 | 10万"
+    assert response["data"]["bidding_detail"]["record"]["content_format"] == "text"
+
+
+def test_html_to_text_preserves_paragraph_list_and_table_format() -> None:
+    gateway = GatewayCore(Settings.from_env())
+    html = """
+    <div>
+      <p>第一段</p>
+      <p>第二段</p>
+      <ul><li>条目一</li><li>条目二</li></ul>
+      <table>
+        <tr><td>项目</td><td>金额</td></tr>
+        <tr><td>A包</td><td>10万</td></tr>
+      </table>
+    </div>
+    """
+    assert gateway._html_to_text(html) == "第一段\n\n第二段\n\n- 条目一\n- 条目二\n\n项目 | 金额\nA包 | 10万"
 
 
 def test_snapshot_cache_key_canonicalizes_options() -> None:

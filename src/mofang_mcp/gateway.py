@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from html.parser import HTMLParser
 from typing import Any
 
 from .cache import TTLMemoryCache, TokenCache
@@ -36,6 +38,104 @@ class UpstreamError(RuntimeError):
 
 class UpstreamTimeoutError(UpstreamError):
     pass
+
+
+class _HTMLTextExtractor(HTMLParser):
+    BLOCK_BREAK_TAGS = {
+        "p",
+        "div",
+        "section",
+        "article",
+        "ul",
+        "ol",
+        "table",
+        "thead",
+        "tbody",
+        "tfoot",
+        "blockquote",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+    }
+    ROW_TAGS = {"tr"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if tag in {"script", "style"}:
+            self._skip_depth += 1
+            return
+        if self._skip_depth:
+            return
+        if tag == "br":
+            self._append_newline()
+        elif tag == "li":
+            self._append_newline()
+            self.parts.append("- ")
+        elif tag in {"td", "th"}:
+            self._append_cell_separator()
+        elif tag in self.ROW_TAGS:
+            self._append_newline()
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in {"script", "style"}:
+            self._skip_depth = max(0, self._skip_depth - 1)
+            return
+        if self._skip_depth:
+            return
+        if tag in self.ROW_TAGS:
+            self._append_newline()
+        elif tag in self.BLOCK_BREAK_TAGS:
+            self._append_block_break()
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        text = re.sub(r"\s+", " ", data)
+        if text.strip():
+            self.parts.append(text)
+
+    def get_text(self) -> str:
+        text = "".join(self.parts)
+        text = re.sub(r"[ \t]+\n", "\n", text)
+        text = re.sub(r"\n[ \t]+", "\n", text)
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def _append_newline(self) -> None:
+        if not self.parts:
+            return
+        if self.parts[-1].endswith("\n"):
+            return
+        self.parts.append("\n")
+
+    def _append_block_break(self) -> None:
+        if not self.parts:
+            return
+        suffix = "".join(self.parts[-2:]) if len(self.parts) >= 2 else self.parts[-1]
+        if suffix.endswith("\n\n"):
+            return
+        if suffix.endswith("\n"):
+            self.parts.append("\n")
+            return
+        self.parts.append("\n\n")
+
+    def _append_cell_separator(self) -> None:
+        if not self.parts:
+            return
+        last = self.parts[-1]
+        if last.endswith("\n") or last.endswith("| "):
+            return
+        self.parts.append(" | ")
 
 
 class GatewayCore:
@@ -333,6 +433,7 @@ class GatewayCore:
         records = payload.get("records") or payload.get("data") or []
         if isinstance(records, dict):
             records = records.get("records") or records.get("list") or []
+        lightweight_records = [self._make_bidding_search_record(record) for record in records if isinstance(record, dict)]
         return self._ok(
             {
                 "query": query,
@@ -340,17 +441,90 @@ class GatewayCore:
                 "search_type_label": "exact" if search_type == "1" else "fuzzy",
                 "bidding_search": {
                     "status": "ok",
-                    "records": records,
+                    "records": lightweight_records,
                     "pagination": {
                         "current": payload.get("current"),
                         "size": payload.get("size"),
                         "total": payload.get("total"),
                         "pages": payload.get("pages"),
                     },
+                    "detail_hint": "如需查看某条标讯正文，请使用 bidding_detail 并传入该条记录的 mid。",
                 },
             },
             started,
             {"tool_id": "bidding_search", "api_call_count": 1, **token_meta},
+            request_id,
+        )
+
+    def bidding_detail(
+        self,
+        mid: str,
+        request_id: str | None = None,
+        ctx: RequestContext | None = None,
+    ) -> dict[str, Any]:
+        started = time.perf_counter()
+        try:
+            credential = self._resolve_credential(ctx)
+        except AuthError as exc:
+            return self._auth_error(str(exc), started, request_id, tool_id="bidding_detail")
+        try:
+            status, payload, token_meta = self._request_with_token_retry(
+                credential,
+                "POST",
+                "/open/data/bidding/detail",
+                {"mid": mid},
+                request_id=request_id,
+                api_id=902,
+                api_name="招标采购详情",
+            )
+        except AuthError as exc:
+            return self._auth_error(str(exc), started, request_id, tool_id="bidding_detail")
+        except UpstreamTimeoutError as exc:
+            return self._upstream_timeout_error(str(exc), True, started, request_id, tool_id="bidding_detail")
+        except UpstreamError as exc:
+            return self._upstream_error(str(exc), True, started, request_id, tool_id="bidding_detail")
+        if status in (401, 403) or str(payload.get("code")) in {"401", "403", "11001"}:
+            return self._auth_error(
+                payload.get("msg") or "bidding detail auth failed",
+                started,
+                request_id,
+                tool_id="bidding_detail",
+            )
+        if status == 598:
+            return self._upstream_timeout_error(
+                payload.get("msg") or "bidding detail upstream timeout",
+                True,
+                started,
+                request_id,
+                tool_id="bidding_detail",
+            )
+        if status >= 500 or status == 599:
+            return self._upstream_error(
+                payload.get("msg") or f"bidding detail upstream status={status}",
+                True,
+                started,
+                request_id,
+                tool_id="bidding_detail",
+            )
+        detail = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        if not self._is_bidding_detail_success(status, payload, detail):
+            return self._upstream_error(
+                payload.get("msg") or f"bidding detail upstream status={status}",
+                False,
+                started,
+                request_id,
+                tool_id="bidding_detail",
+            )
+        return self._ok(
+            {
+                "mid": mid,
+                "bidding_detail": {
+                    "status": "ok",
+                    "record": self._make_bidding_detail_record(detail, mid),
+                },
+            },
+            started,
+            {"tool_id": "bidding_detail", "api_call_count": 1, **token_meta},
             request_id,
         )
 
@@ -366,6 +540,58 @@ class GatewayCore:
         if isinstance(data, dict) and any(key in data for key in ("records", "list", "total", "size")):
             return True
         return code is not None and str(code) in {"200", "0", ""}
+
+    def _is_bidding_detail_success(self, status: int, payload: dict[str, Any], detail: dict[str, Any] | Any) -> bool:
+        if status != 200:
+            return False
+        code = payload.get("code")
+        if code is not None and str(code) not in {"200", "0", ""}:
+            return False
+        if isinstance(detail, dict) and any(key in detail for key in ("content", "title", "mid", "projectNum")):
+            return True
+        return code is not None and str(code) in {"200", "0", ""}
+
+    def _make_bidding_search_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        content_text = self._html_to_text(str(record.get("content") or ""))
+        lightweight = {
+            "mid": record.get("mid") or "",
+            "title": record.get("title") or "",
+            "projectNum": record.get("projectNum") or "",
+            "region": record.get("region") or "",
+            "bidType": record.get("bidType") or "",
+            "industryType": record.get("industryType") or "",
+            "publishDate": record.get("publishDate") or "",
+            "totalAmount": record.get("totalAmount") or "",
+            "tender": record.get("tender") or "",
+            "winning": record.get("winning") or "",
+            "agent": record.get("agent") or "",
+            "content_preview": self._truncate_text(content_text, 180),
+            "has_content": bool(content_text),
+        }
+        return lightweight
+
+    def _make_bidding_detail_record(self, detail: dict[str, Any], requested_mid: str) -> dict[str, Any]:
+        record = dict(detail)
+        content_text = self._html_to_text(str(record.get("content") or ""))
+        record["mid"] = record.get("mid") or requested_mid
+        record["content"] = content_text
+        record["content_format"] = "text"
+        return record
+
+    def _truncate_text(self, text: str, max_length: int) -> str:
+        normalized = text.strip()
+        if len(normalized) <= max_length:
+            return normalized
+        return normalized[: max_length - 1].rstrip() + "…"
+
+    def _html_to_text(self, html: str) -> str:
+        if not html:
+            return ""
+        extractor = _HTMLTextExtractor()
+        extractor.feed(html)
+        extractor.close()
+        text = extractor.get_text()
+        return re.sub(r"\n \| ", "\n", text)
 
     def _fetch_module(
         self,

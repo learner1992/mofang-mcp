@@ -197,6 +197,36 @@ def test_bidding_search_returns_standardized_list() -> None:
     assert response["data"]["bidding_search"]["pagination"]["total"] == "1"
 
 
+def test_bidding_search_accepts_success_payload_without_code() -> None:
+    gateway = GatewayCore(Settings.from_env())
+
+    def fake_request_with_token_retry(
+        credential,
+        method,
+        path,
+        body,
+        request_id=None,
+        api_id=None,
+        api_name=None,
+    ):
+        return (
+            200,
+            {
+                "records": [{"title": "电梯采购项目"}],
+                "size": "10",
+                "total": "500001",
+                "searchCount": True,
+            },
+            {"cache_hit_token": True},
+        )
+
+    gateway._request_with_token_retry = fake_request_with_token_retry
+    response = gateway.bidding_search("电梯", request_id="req_bid_search_no_code")
+    assert response["code"] == 0
+    assert response["data"]["bidding_search"]["records"][0]["title"] == "电梯采购项目"
+    assert response["data"]["bidding_search"]["pagination"]["total"] == "500001"
+
+
 def test_bidding_search_rejects_invalid_search_type() -> None:
     gateway = GatewayCore(Settings.from_env())
     response = gateway.bidding_search("小米", search_type="2", request_id="req_bad_search_type")

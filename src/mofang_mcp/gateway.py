@@ -322,7 +322,7 @@ class GatewayCore:
                 request_id,
                 tool_id="bidding_search",
             )
-        if status != 200 or str(payload.get("code")) not in {"200", "0", ""}:
+        if not self._is_bidding_search_success(status, payload):
             return self._upstream_error(
                 payload.get("msg") or f"bidding search upstream status={status}",
                 False,
@@ -353,6 +353,19 @@ class GatewayCore:
             {"tool_id": "bidding_search", "api_call_count": 1, **token_meta},
             request_id,
         )
+
+    def _is_bidding_search_success(self, status: int, payload: dict[str, Any]) -> bool:
+        if status != 200:
+            return False
+        code = payload.get("code")
+        if code is not None and str(code) not in {"200", "0", ""}:
+            return False
+        if any(key in payload for key in ("records", "total", "size", "searchCount")):
+            return True
+        data = payload.get("data")
+        if isinstance(data, dict) and any(key in data for key in ("records", "list", "total", "size")):
+            return True
+        return code is not None and str(code) in {"200", "0", ""}
 
     def _fetch_module(
         self,

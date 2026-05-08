@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import re
 import time
@@ -41,27 +42,6 @@ class UpstreamTimeoutError(UpstreamError):
 
 
 class _HTMLTextExtractor(HTMLParser):
-    BLOCK_BREAK_TAGS = {
-        "p",
-        "div",
-        "section",
-        "article",
-        "ul",
-        "ol",
-        "table",
-        "thead",
-        "tbody",
-        "tfoot",
-        "blockquote",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-    }
-    ROW_TAGS = {"tr"}
-
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
@@ -71,71 +51,28 @@ class _HTMLTextExtractor(HTMLParser):
         tag = tag.lower()
         if tag in {"script", "style"}:
             self._skip_depth += 1
+        elif self._skip_depth:
             return
-        if self._skip_depth:
-            return
-        if tag == "br":
-            self._append_newline()
-        elif tag == "li":
-            self._append_newline()
-            self.parts.append("- ")
-        elif tag in {"td", "th"}:
-            self._append_cell_separator()
-        elif tag in self.ROW_TAGS:
-            self._append_newline()
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
         if tag in {"script", "style"}:
             self._skip_depth = max(0, self._skip_depth - 1)
+        elif self._skip_depth:
             return
-        if self._skip_depth:
-            return
-        if tag in self.ROW_TAGS:
-            self._append_newline()
-        elif tag in self.BLOCK_BREAK_TAGS:
-            self._append_block_break()
 
     def handle_data(self, data: str) -> None:
         if self._skip_depth:
             return
         text = re.sub(r"\s+", " ", data)
         if text.strip():
-            self.parts.append(text)
+            self.parts.append(text.strip())
 
     def get_text(self) -> str:
-        text = "".join(self.parts)
-        text = re.sub(r"[ \t]+\n", "\n", text)
-        text = re.sub(r"\n[ \t]+", "\n", text)
-        text = re.sub(r"[ \t]{2,}", " ", text)
-        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = " ".join(self.parts)
+        text = text.replace("\xa0", " ")
+        text = re.sub(r"\s+", " ", text)
         return text.strip()
-
-    def _append_newline(self) -> None:
-        if not self.parts:
-            return
-        if self.parts[-1].endswith("\n"):
-            return
-        self.parts.append("\n")
-
-    def _append_block_break(self) -> None:
-        if not self.parts:
-            return
-        suffix = "".join(self.parts[-2:]) if len(self.parts) >= 2 else self.parts[-1]
-        if suffix.endswith("\n\n"):
-            return
-        if suffix.endswith("\n"):
-            self.parts.append("\n")
-            return
-        self.parts.append("\n\n")
-
-    def _append_cell_separator(self) -> None:
-        if not self.parts:
-            return
-        last = self.parts[-1]
-        if last.endswith("\n") or last.endswith("| "):
-            return
-        self.parts.append(" | ")
 
 
 class GatewayCore:
@@ -587,11 +524,29 @@ class GatewayCore:
     def _html_to_text(self, html: str) -> str:
         if not html:
             return ""
+        html = self._normalize_html_for_text(html)
         extractor = _HTMLTextExtractor()
         extractor.feed(html)
         extractor.close()
         text = extractor.get_text()
-        return re.sub(r"\n \| ", "\n", text)
+        text = text.replace("?", "")
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
+    def _normalize_html_for_text(self, html_text: str) -> str:
+        normalized = html.unescape(html_text)
+        normalized = normalized.replace("</", " </")
+        normalized = normalized.replace(" readonly ", " ")
+        normalized = normalized.replace(' readonly="readonly" ', " ")
+        normalized = self._replace_text_inputs_with_value(normalized)
+        return normalized.replace("&nbsp;", " ")
+
+    def _replace_text_inputs_with_value(self, html_text: str) -> str:
+        pattern = re.compile(
+            r"<input\b(?=[^>]*\btype\s*=\s*['\"]?text['\"]?)(?=[^>]*\bvalue\s*=\s*['\"]([^'\"]*)['\"])[^>]*>",
+            re.IGNORECASE,
+        )
+        return pattern.sub(lambda match: match.group(1) or "", html_text)
 
     def _fetch_module(
         self,

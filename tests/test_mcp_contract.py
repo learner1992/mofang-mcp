@@ -204,7 +204,7 @@ def test_bidding_search_returns_standardized_list() -> None:
     record = response["data"]["bidding_search"]["records"][0]
     assert record["title"] == "测试标讯"
     assert record["mid"] == "424509104"
-    assert record["content_preview"] == "第一段\n\n第二段"
+    assert record["content_preview"] == "第一段 第二段"
     assert record["has_content"] is True
     assert "content" not in record
     assert response["data"]["bidding_search"]["pagination"]["total"] == "1"
@@ -283,7 +283,7 @@ def test_bidding_detail_returns_standardized_record() -> None:
     assert response["data"]["mid"] == "424509104"
     record = response["data"]["bidding_detail"]["record"]
     assert record["title"] == "电梯公开招标采购中标候选人公示"
-    assert record["content"] == "正文\n\n- 条目一\n- 条目二"
+    assert record["content"] == "正文 条目一 条目二"
     assert record["content_format"] == "text"
 
 
@@ -316,7 +316,7 @@ def test_bidding_detail_accepts_nested_data_payload() -> None:
     response = gateway.bidding_detail("424508357", request_id="req_bid_detail_nested")
     assert response["code"] == 0
     assert response["data"]["bidding_detail"]["record"]["mid"] == "424508357"
-    assert response["data"]["bidding_detail"]["record"]["content"] == "项目 | 金额\nA包 | 10万"
+    assert response["data"]["bidding_detail"]["record"]["content"] == "项目 金额 A包 10万"
     assert response["data"]["bidding_detail"]["record"]["content_format"] == "text"
 
 
@@ -333,7 +333,13 @@ def test_html_to_text_preserves_paragraph_list_and_table_format() -> None:
       </table>
     </div>
     """
-    assert gateway._html_to_text(html) == "第一段\n\n第二段\n\n- 条目一\n- 条目二\n\n项目 | 金额\nA包 | 10万"
+    assert gateway._html_to_text(html) == "第一段 第二段 条目一 条目二 项目 金额 A包 10万"
+
+
+def test_html_to_text_replaces_text_input_value_and_normalizes_whitespace() -> None:
+    gateway = GatewayCore(Settings.from_env())
+    html = '<div>&nbsp;标题<input type="text" value="已填写" readonly="readonly" /> <span>内容</span></div>'
+    assert gateway._html_to_text(html) == "标题已填写 内容"
 
 
 def test_snapshot_cache_key_canonicalizes_options() -> None:

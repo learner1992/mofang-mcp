@@ -1,10 +1,4 @@
-# 一页式接入：OpenClaw / Claude Code（本地运行，仅开发调试）
-
-> 当前生产推荐为远程托管模式：
-> - [REMOTE_MCP_REGISTRATION_ONE_PAGER.md](REMOTE_MCP_REGISTRATION_ONE_PAGER.md)
-> - [REMOTE_MCP_HOSTED_SPEC_V1.md](REMOTE_MCP_HOSTED_SPEC_V1.md)
->
-> 本文档仅保留给开发联调场景。
+# 一页式接入：OpenClaw / Claude Code（本地运行）
 
 ## 0. 前提说明
 
@@ -90,6 +84,7 @@ python3 main.py call route_query '{"query":"查一下华为最近一年招投标
 - `company_profile`
 - `company_risk`
 - `company_bidding`
+- `bidding_search`
 
 其中 `company_profile` / `company_risk` / `company_bidding` 是对 `company_snapshot` 的单模块封装。
 

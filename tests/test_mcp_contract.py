@@ -53,7 +53,15 @@ def test_tools_list_contains_a0_tools() -> None:
     server = McpServer()
     response = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     names = {item["name"] for item in response["result"]["tools"]}
-    assert {"route_query", "resolve_entity", "company_snapshot", "company_profile", "company_risk", "company_bidding"} <= names
+    assert {
+        "route_query",
+        "resolve_entity",
+        "company_snapshot",
+        "company_profile",
+        "company_risk",
+        "company_bidding",
+        "bidding_search",
+    } <= names
     for item in response["result"]["tools"]:
         assert item["tool_id"] == item["name"]
         assert item["version"]
@@ -149,6 +157,52 @@ def test_build_body_for_icp_api_includes_keyword_only() -> None:
     entity = {"ent_name": "启魔方（北京）科技有限公司"}
     body = gateway._build_body(1013, entity, {"current": 2, "limit": 20})
     assert body == {"keyword": "启魔方（北京）科技有限公司"}
+
+
+def test_bidding_search_returns_standardized_list() -> None:
+    gateway = GatewayCore(Settings.from_env())
+
+    def fake_request_with_token_retry(
+        credential,
+        method,
+        path,
+        body,
+        request_id=None,
+        api_id=None,
+        api_name=None,
+    ):
+        assert method == "POST"
+        assert path == "/open/data/bidding/search"
+        assert body == {"keyword": "小米", "searchType": "1", "current": 2, "size": 20}
+        return (
+            200,
+            {
+                "code": "200",
+                "current": "2",
+                "size": "20",
+                "total": "1",
+                "pages": "1",
+                "records": [{"title": "测试标讯", "region": "北京"}],
+            },
+            {"cache_hit_token": True},
+        )
+
+    gateway._request_with_token_retry = fake_request_with_token_retry
+    response = gateway.bidding_search("小米", search_type="1", options={"current": 2, "limit": 20}, request_id="req_bid_search")
+    assert response["code"] == 0
+    assert response["request_id"] == "req_bid_search"
+    assert response["data"]["query"] == "小米"
+    assert response["data"]["search_type_label"] == "exact"
+    assert response["data"]["bidding_search"]["records"][0]["title"] == "测试标讯"
+    assert response["data"]["bidding_search"]["pagination"]["total"] == "1"
+
+
+def test_bidding_search_rejects_invalid_search_type() -> None:
+    gateway = GatewayCore(Settings.from_env())
+    response = gateway.bidding_search("小米", search_type="2", request_id="req_bad_search_type")
+    assert response["code"] == 10001
+    assert response["message"] == "INVALID_ARGUMENT"
+    assert response["request_id"] == "req_bad_search_type"
 
 
 def test_snapshot_cache_key_canonicalizes_options() -> None:

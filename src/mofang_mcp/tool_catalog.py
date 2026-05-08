@@ -35,6 +35,11 @@ OPTIONS_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+SEARCH_TYPE_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "enum": ["0", "1"],
+}
+
 
 TOOLS: list[dict[str, Any]] = [
     tool(
@@ -116,6 +121,20 @@ TOOLS: list[dict[str, Any]] = [
                 "options": OPTIONS_SCHEMA,
             },
             "required": ["entity"],
+            "additionalProperties": False,
+        },
+    ),
+    tool(
+        "bidding_search",
+        "Search bidding and procurement announcements by keyword.",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "search_type": SEARCH_TYPE_SCHEMA,
+                "options": OPTIONS_SCHEMA,
+            },
+            "required": ["query"],
             "additionalProperties": False,
         },
     ),

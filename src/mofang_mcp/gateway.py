@@ -249,6 +249,111 @@ class GatewayCore:
             request_id,
         )
 
+    def bidding_search(
+        self,
+        query: str,
+        search_type: str = "0",
+        options: dict[str, Any] | None = None,
+        request_id: str | None = None,
+        ctx: RequestContext | None = None,
+    ) -> dict[str, Any]:
+        started = time.perf_counter()
+        try:
+            credential = self._resolve_credential(ctx)
+        except AuthError as exc:
+            return self._auth_error(str(exc), started, request_id, tool_id="bidding_search")
+        options = options or {}
+        options, options_error = self._normalize_options(options, started, request_id, tool_id="bidding_search")
+        if options_error:
+            return options_error
+        search_type = str(search_type or "0")
+        if search_type not in {"0", "1"}:
+            return self._error(
+                10001,
+                "INVALID_ARGUMENT",
+                "search_type must be one of: 0, 1",
+                False,
+                started,
+                request_id,
+                context={"field": "search_type", "allowed_values": ["0", "1"]},
+                tool_id="bidding_search",
+            )
+        try:
+            status, payload, token_meta = self._request_with_token_retry(
+                credential,
+                "POST",
+                "/open/data/bidding/search",
+                {
+                    "keyword": query,
+                    "searchType": search_type,
+                    "current": int(options.get("current", 1)),
+                    "size": int(options.get("limit", 10)),
+                },
+                request_id=request_id,
+                api_id=903,
+                api_name="招标采购垂搜",
+            )
+        except AuthError as exc:
+            return self._auth_error(str(exc), started, request_id, tool_id="bidding_search")
+        except UpstreamTimeoutError as exc:
+            return self._upstream_timeout_error(str(exc), True, started, request_id, tool_id="bidding_search")
+        except UpstreamError as exc:
+            return self._upstream_error(str(exc), True, started, request_id, tool_id="bidding_search")
+        if status in (401, 403) or str(payload.get("code")) in {"401", "403", "11001"}:
+            return self._auth_error(
+                payload.get("msg") or "bidding search auth failed",
+                started,
+                request_id,
+                tool_id="bidding_search",
+            )
+        if status == 598:
+            return self._upstream_timeout_error(
+                payload.get("msg") or "bidding search upstream timeout",
+                True,
+                started,
+                request_id,
+                tool_id="bidding_search",
+            )
+        if status >= 500 or status == 599:
+            return self._upstream_error(
+                payload.get("msg") or f"bidding search upstream status={status}",
+                True,
+                started,
+                request_id,
+                tool_id="bidding_search",
+            )
+        if status != 200 or str(payload.get("code")) not in {"200", "0", ""}:
+            return self._upstream_error(
+                payload.get("msg") or f"bidding search upstream status={status}",
+                False,
+                started,
+                request_id,
+                tool_id="bidding_search",
+            )
+        records = payload.get("records") or payload.get("data") or []
+        if isinstance(records, dict):
+            records = records.get("records") or records.get("list") or []
+        return self._ok(
+            {
+                "query": query,
+                "search_type": search_type,
+                "search_type_label": "exact" if search_type == "1" else "fuzzy",
+                "bidding_search": {
+                    "status": "ok",
+                    "records": records,
+                    "pagination": {
+                        "current": payload.get("current"),
+                        "size": payload.get("size"),
+                        "total": payload.get("total"),
+                        "pages": payload.get("pages"),
+                    },
+                },
+            },
+            started,
+            {"tool_id": "bidding_search", "api_call_count": 1, **token_meta},
+            request_id,
+        )
+
     def _fetch_module(
         self,
         module: str,

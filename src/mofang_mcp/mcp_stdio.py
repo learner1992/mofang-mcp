@@ -157,6 +157,14 @@ class McpServer:
                 ctx=ctx,
             )
             return self._single_module_response(result, "bidding")
+        if name == "bidding_search":
+            return self.gateway.bidding_search(
+                str(arguments["query"]),
+                search_type=str(arguments.get("search_type", "0")),
+                options=arguments.get("options") or {},
+                request_id=request_id,
+                ctx=ctx,
+            )
         raise ValueError(f"tool not implemented: {name}")
 
     def _single_module_response(
